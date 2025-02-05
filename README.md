@@ -11,12 +11,35 @@ A machine learning project that classifies news articles into different categori
 - Example news articles for testing
 - Cross-validation and model evaluation
 
-## Performance
+## Model Performance
 
-- Accuracy: 97.53%
-- Precision: 97.54%
-- Recall: 97.53%
-- F1 Score: 97.53%
+### CountVectorizer + Random Forest Model
+- Accuracy: 97.08%
+- Precision: 97.15%
+- Recall: 97.08%
+- F1 Score: 97.04%
+
+Category-wise Performance:
+               precision    recall  f1-score
+     business       0.94      1.00      0.97
+entertainment       0.97      0.90      0.93
+     politics       0.97      1.00      0.98
+        sport       0.98      1.00      0.99
+         tech       1.00      0.94      0.97
+
+### Word2Vec + Random Forest Model
+- Accuracy: 96.18%
+- Precision: 96.17%
+- Recall: 96.18%
+- F1 Score: 96.16%
+
+Category-wise Performance:
+               precision    recall  f1-score
+     business       0.98      0.98      0.98
+entertainment       0.93      0.90      0.91
+     politics       0.94      0.98      0.96
+        sport       0.99      0.99      0.99
+         tech       0.95      0.95      0.95
 
 ## Installation
 
