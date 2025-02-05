@@ -1,0 +1,324 @@
+# contents in model_training.ipynb
+
+from google.colab import drive
+drive.mount('/content/drive')
+import os
+os.chdir('/content/drive/MyDrive/news_text_classification')
+!pip install -r requirements.txt -q
+import kagglehub
+import shutil
+
+download_path = os.getcwd()
+
+dataset_path = kagglehub.dataset_download("alfathterry/bbc-full-text-document-classification")
+destination_path = os.path.join(download_path, "dataset")
+
+if os.path.exists(destination_path):
+    print(f"Path '{destination_path}' already exists. Removing the existing directory...")
+    shutil.rmtree(destination_path)
+
+shutil.move(dataset_path, destination_path)
+
+print("Dataset stored at:", destination_path)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import gensim
+import gensim.downloader as api
+from gensim.models import word2vec
+from gensim.models.word2vec import Word2Vec
+from gensim.models import KeyedVectors
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score, cross_validate
+from sklearn.metrics import  accuracy_score
+df = pd.read_csv('dataset/bbc_data.csv')
+df.head()
+df.data[0]
+df.labels.value_counts()
+X = df['data'].apply(gensim.utils.simple_preprocess)
+y = df['labels']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=2024, stratify=y)
+w2v_model = Word2Vec(X_train, window=15, vector_size=300, min_count=2, epochs=30)
+def sentence_vectorizer(corpus, model):
+    result = []
+    for sentence in corpus:
+        counter = 0
+        bucket = np.zeros(model.vector_size)
+        for word in sentence:
+            if word in model.wv:
+                counter += 1
+                bucket += model.wv[word]
+        bucket = bucket / counter
+        result.append(bucket)
+    return result
+words = set(w2v_model.wv.index_to_key) # Unique words in Word2Vec model
+print(words)
+X_train_vec = sentence_vectorizer(X_train, w2v_model)
+X_test_vec = sentence_vectorizer(X_test, w2v_model)
+rf = RandomForestClassifier()
+rf.fit(X_train_vec, y_train)
+cv_result = pd.DataFrame(
+    cross_validate(rf, X_train_vec, y_train, scoring=['accuracy'], return_train_score=True, verbose=0, n_jobs=-1, cv=6)
+).rename(columns={'test_accuracy':'val_accuracy'}).iloc[:,2:]
+print(cv_result.val_accuracy)
+val_score = cv_result['val_accuracy'].mean()
+train_score = cv_result['train_accuracy'].mean()
+test_score = accuracy_score(y_true=y_test, y_pred=rf.predict(X_test_vec))
+
+print('Training Score: ', train_score)
+print('Validation Score: ', val_score)
+print('Test Score: ', test_score)
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
+
+# Predict test set
+y_pred = rf.predict(X_test_vec)
+
+# Calculate Metrics
+accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred, average='weighted')
+recall = recall_score(y_test, y_pred, average='weighted')
+f1 = f1_score(y_test, y_pred, average='weighted')
+
+# Print Evaluation Metrics
+print("Evaluation Metrics:")
+print(f"Accuracy: {accuracy:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall: {recall:.4f}")
+print(f"F1 Score: {f1:.4f}")
+
+# Confusion Matrix
+conf_matrix = confusion_matrix(y_test, y_pred)
+print("\nConfusion Matrix:")
+print(conf_matrix)
+
+# Detailed Classification Report
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+### Now i am going to compare the model with CountVectorizer.
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.pipeline import Pipeline
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords, wordnet
+from nltk import word_tokenize
+import nltk
+
+nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
+if not os.path.exists(nltk_data_path):
+    os.makedirs(nltk_data_path)
+
+nltk.data.path.append(nltk_data_path)
+nltk.download('wordnet', download_dir=nltk_data_path)
+# nltk.download('punkt', download_dir=nltk_data_path)
+nltk.download('punkt_tab', download_dir=nltk_data_path)
+nltk.download('stopwords', download_dir=nltk_data_path)
+nltk.download('averaged_perceptron_tagger_eng', download_dir=nltk_data_path)
+def get_wordnet_pos(tag):
+    if tag.startswith('J'):
+        return wordnet.ADJ
+    elif tag.startswith('V'):
+        return wordnet.VERB
+    elif tag.startswith('N'):
+        return wordnet.NOUN
+    elif tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return wordnet.NOUN
+
+class LemmaTokenizer:
+    def __init__(self):
+        self.wnl = WordNetLemmatizer()
+        self.stop_words = set(stopwords.words('english'))
+
+    def __call__(self, doc):
+        tokens = word_tokenize(doc)
+        words_and_tags = nltk.pos_tag(tokens)
+        return [self.wnl.lemmatize(word, pos=get_wordnet_pos(tag))
+        for word, tag in words_and_tags if word.lower() not in self.stop_words]
+# Initialize CountVectorizer with Lemmatization and Stopword Removal
+vectorizer = CountVectorizer(tokenizer=LemmaTokenizer())
+
+X_train, X_test, y_train, y_test = train_test_split(df['data'], df['labels'], test_size=0.20, random_state=2024, stratify=df['labels'])
+
+# Transform the dataset
+X_train_cv = vectorizer.fit_transform(X_train)
+X_test_cv = vectorizer.transform(X_test)
+
+# Train the Random Forest Model
+rf_cv = RandomForestClassifier()
+rf_cv.fit(X_train_cv, y_train)
+
+# Cross-validation
+cv_result_cv = pd.DataFrame(
+    cross_validate(rf_cv, X_train_cv, y_train, scoring=['accuracy'], return_train_score=True, verbose=0, n_jobs=-1, cv=6)
+).rename(columns={'test_accuracy': 'val_accuracy'}).iloc[:, 2:]
+
+# Compute Scores for Count Vectorizer Model
+val_score_cv = cv_result_cv['val_accuracy'].mean()
+train_score_cv = cv_result_cv['train_accuracy'].mean()
+test_score_cv = accuracy_score(y_true=y_test, y_pred=rf_cv.predict(X_test_cv))
+
+print("\n===== Model Performance =====")
+print(f"Training Score: {train_score_cv:.4f}")
+print(f"Validation Score: {val_score_cv:.4f}")
+print(f"Test Score: {test_score_cv:.4f}")
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
+
+# Predict test set using CountVectorizer model
+y_pred_cv = rf_cv.predict(X_test_cv)
+
+# Calculate Metrics for CountVectorizer model
+accuracy_cv = accuracy_score(y_test, y_pred_cv)
+precision_cv = precision_score(y_test, y_pred_cv, average='weighted')
+recall_cv = recall_score(y_test, y_pred_cv, average='weighted')
+f1_cv = f1_score(y_test, y_pred_cv, average='weighted')
+
+# Print Evaluation Metrics for CountVectorizer model
+print("\n===== CountVectorizer Model Evaluation Metrics =====")
+print(f"Accuracy: {accuracy_cv:.4f}")
+print(f"Precision: {precision_cv:.4f}")
+print(f"Recall: {recall_cv:.4f}")
+print(f"F1 Score: {f1_cv:.4f}")
+
+# Confusion Matrix
+conf_matrix_cv = confusion_matrix(y_test, y_pred_cv)
+print("\nConfusion Matrix:")
+print(conf_matrix_cv)
+
+# Detailed Classification Report
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_cv))
+After comparing both models, Word2Vec + Random Forest is performing the best.
+You can see that:
+
+It has higher accuracy (0.9753 vs 0.9708) than CountVectorizer.
+It has better precision, recall, and F1-score across all categories.
+The confusion matrix shows fewer misclassifications, making it more reliable.
+I am going to choose Word2Vec + Random Forest as the best model for text classification.
+### Saving the best model
+import pickle
+
+with open('rf_model.pkl', 'wb') as model_file:
+    pickle.dump(rf, model_file)
+
+print("Random Forest Model Saved Successfully")
+w2v_model.save('w2v_model.model')
+print("Word2Vec Model Saved Successfully!")
+import gensim
+import numpy as np
+
+# Load the saved Word2Vec model
+w2v_model_loaded = gensim.models.Word2Vec.load('w2v_model.model')
+with open('rf_model.pkl', 'rb') as model_file:
+    rf_loaded = pickle.load(model_file)
+
+# Function to preprocess, vectorize, and predict the class
+def predict_news_category(text):
+    """
+    Takes raw text as input, preprocesses it, converts it into a vector,
+    and predicts the news category using the trained Random Forest model.
+    """
+    # Preprocess text
+    processed_text = gensim.utils.simple_preprocess(text)
+
+    # Convert text to vector
+    def sentence_vectorizer(sentence, model):
+        bucket = np.zeros(model.vector_size)
+        counter = 0
+        for word in sentence:
+            if word in model.wv:
+                counter += 1
+                bucket += model.wv[word]
+        if counter > 0:
+            bucket /= counter
+        return bucket
+
+    text_vector = sentence_vectorizer(processed_text, w2v_model_loaded).reshape(1, -1)
+
+    # Predict class
+    predicted_label = rf_loaded.predict(text_vector)[0]
+
+    return predicted_label
+
+# Example usage
+text = "The government is introducing new policies for healthcare reforms."
+predicted_category = predict_news_category(text)
+print("Predicted News Category:", predicted_category)
+
+!pip install gradio -q
+!pip install huggingface_hub -q
+# # app.py
+
+# import gradio as gr
+# import pickle
+# import gensim
+# import numpy as np
+
+# # Load the trained models
+# with open("rf_model.pkl", "rb") as model_file:
+#     rf_loaded = pickle.load(model_file)
+
+# w2v_model_loaded = gensim.models.Word2Vec.load("w2v_model.model")
+
+# # Function to preprocess, vectorize, and predict the class
+# def predict_news_category(text):
+#     """
+#     Takes raw text as input, preprocesses it, converts it into a vector,
+#     and predicts the news category using the trained Random Forest model.
+#     """
+#     # Preprocess text
+#     processed_text = gensim.utils.simple_preprocess(text)
+
+#     # Convert text to vector
+#     def sentence_vectorizer(sentence, model):
+#         bucket = np.zeros(model.vector_size)
+#         counter = 0
+#         for word in sentence:
+#             if word in model.wv:
+#                 counter += 1
+#                 bucket += model.wv[word]
+#         if counter > 0:
+#             bucket /= counter
+#         return bucket
+
+#     text_vector = sentence_vectorizer(processed_text, w2v_model_loaded).reshape(1, -1)
+
+#     # Predict class
+#     predicted_label = rf_loaded.predict(text_vector)[0]
+
+#     return predicted_label
+
+# # List of example news texts
+# examples = [
+#     ["The government is introducing new policies for healthcare reforms."],
+#     ["The stock market saw a significant rise after the tech boom."],
+#     ["The latest football match between Manchester United and Liverpool was thrilling."],
+#     ["A new movie featuring top Hollywood actors is set to release this weekend."],
+#     ["NASA's latest space mission has successfully landed on Mars."]
+# ]
+
+# # Define Gradio interface
+# with gr.Blocks() as demo:
+#     gr.HTML("<h1 style='text-align: center;'>📰 News Category Classifier</h1>")
+#     gr.HTML("<p style='text-align: center;'>Enter a news article and get its category prediction.</p>")
+
+#     with gr.Row():
+#         text_input = gr.Textbox(label="Enter news text", interactive=True)
+
+#     with gr.Row():
+#         submit_btn = gr.Button("Predict News Category")
+
+#     output_label = gr.Label(label="Predicted Category")
+
+#     # Example inputs
+#     gr.Examples(examples=examples, inputs=text_input, label="Click an example to try")
+
+#     submit_btn.click(fn=predict_news_category, inputs=text_input, outputs=output_label)
+
+# # Launch app
+# if __name__ == "__main__":
+#     demo.launch()
+
